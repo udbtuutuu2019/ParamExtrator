@@ -30,3 +30,15 @@ def test_non_pii_preserved():
 
 def test_non_string_input_safe():
     assert redact(None) == ""
+
+
+def test_email_masked():
+    # C2：邮箱必须掩码（§8.4 必做）
+    out = redact("请联系我 user@example.com")
+    assert "user@example.com" not in out
+
+
+def test_phone_masked():
+    # C2：手机号必须掩码（§8.4 必做）
+    out = redact("电话是 13812345678")
+    assert "13812345678" not in out

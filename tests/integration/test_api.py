@@ -34,3 +34,13 @@ def test_over_limit_returns_400():
     configure(client=MockLLMClient([LLMResponse(_valid())]), settings=Settings())
     resp = TestClient(app).post("/v1/extract", json={"transcript_id": "T", "content": "x" * 40000})
     assert resp.status_code == 400
+
+
+def test_server_configures_logging():
+    # I5：服务入口应初始化结构化日志
+    import logging
+
+    import param_extractor.api.server  # noqa: F401
+    handlers = logging.getLogger("param_extractor").handlers
+    assert any(isinstance(h, logging.StreamHandler) and not isinstance(h, logging.NullHandler)
+               for h in handlers)

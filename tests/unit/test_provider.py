@@ -109,3 +109,13 @@ def test_extract_reads_tool_call_arguments_when_content_empty():
     assert resp.content == '{"from": "tool_call"}'
     assert resp.finish_reason == "tool_calls"
 
+
+def test_extract_passes_timeout_and_max_tokens():
+    # I1：provider 应传 timeout / max_tokens
+    fake = _FakeInstructor()
+    InstructorClient(fake, model="m", timeout=30, max_tokens=512).extract(
+        [{"role": "user", "content": "x"}])
+    call = fake.chat.completions.calls[0]
+    assert call["timeout"] == 30
+    assert call["max_tokens"] == 512
+

@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from ..config import Settings, load_settings
 from ..contracts.request import ExtractionRequest
 from ..ingestion.ingest import is_over_limit, normalize
+from ..observability.logger import configure_logging
 from ..pipeline.orchestrator import run_pipeline
 
 app = FastAPI(title="ParamExtrator")
@@ -36,7 +37,15 @@ def _client():
 
     s = _settings()
     base = OpenAI(api_key=s.llm_api_key, base_url=s.llm_base_url)
-    return InstructorClient(instructor.from_openai(base), s.llm_model)
+    return InstructorClient(instructor.from_openai(base), s.llm_model, timeout=s.llm_timeout_s)
+
+
+# I5：服务启动即初始化结构化日志
+try:
+    _boot = _state["settings"] or load_settings()
+    configure_logging(_boot.log_level, _boot.log_format)
+except Exception:  # noqa: BLE001 —— 配置失败不得阻塞服务启动
+    configure_logging()
 
 
 @app.post("/v1/extract")

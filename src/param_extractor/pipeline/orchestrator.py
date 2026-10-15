@@ -1,7 +1,9 @@
 """Orchestrator：状态机编排（设计 §3.3/§5；决策 D2/D6/D9）。
 
-**保证永不抛异常**，永远返回定义终态（SUCCESS / REPAIRED / FALLBACK）。
+**保证永不抛异常**，永远返回定义终态（SUCCESS / REPAIRED / FALLBACK），
+且每个出口都记录一条 `pipeline_result` 结构化日志（Final review C1）。
 """
+import random
 import time
 import uuid
 from typing import Optional
@@ -17,6 +19,7 @@ from ..fallback.fallback_handler import build_fallback
 from ..guardrail.injection import detect_injection
 from ..guardrail.pii_scan import apply_pii_policy, scan_pii
 from ..guardrail.sanitizer import wrap_untrusted
+from ..ingestion.ingest import is_over_limit
 from ..observability.logger import (
     log_guardrail,
     log_llm_call,
@@ -38,7 +41,7 @@ def _classify_transport(e: Exception) -> str:
         return ErrorType.TRANSPORT_TIMEOUT.value
     if "rate" in n or "429" in s:
         return ErrorType.RATE_LIMIT.value
-    return "TRANSPORT_ERROR"
+    return ErrorType.TRANSPORT_ERROR.value
 
 
 def _review_output(data: ExtractionOutput, cats, injection_suspected: bool) -> ExtractionOutput:
@@ -49,18 +52,32 @@ def _review_output(data: ExtractionOutput, cats, injection_suspected: bool) -> E
     return data.model_copy(update=updates)
 
 
+def _finish(result: ExtractionResult, injection_suspected: bool) -> ExtractionResult:
+    """统一出货：记录 pipeline_result 后返回（杜绝漏日志）。"""
+    log_pipeline_result(result.trace_id, str(result.status), result.attempts, result.repairs,
+                        result.needs_human_review, result.latency_ms,
+                        injection_suspected, result.data.detected_pii)
+    return result
+
+
 def run_pipeline(req: ExtractionRequest, client: LLMClient, settings: Settings) -> ExtractionResult:
     t0 = time.perf_counter()
     trace_id = req.trace_id or f"trc_{uuid.uuid4().hex[:8]}"
     attempts = 0
     last_err: Optional[str] = None
-    fallback_pii = False
+    suspected = False
     try:
         # ① 空输入边界：不调用 LLM（Review Focus #1）
         if not req.content or not req.content.strip():
-            return build_fallback(trace_id, "empty_input", attempts=0, latency_ms=_ms(t0))
+            return _finish(build_fallback(trace_id, "empty_input",
+                                          attempts=0, latency_ms=_ms(t0)), suspected)
 
-        # ② 前置护栏
+        # ② 超长拒绝（Review Focus #5 / I4）：控制层拦截，不静默继续
+        if is_over_limit(req, settings.max_input_bytes):
+            return _finish(build_fallback(trace_id, "context_overflow:CONTEXT_OVERFLOW",
+                                          attempts=0, latency_ms=_ms(t0)), suspected)
+
+        # ③ 前置护栏
         matched, suspected = detect_injection(req.content)
         log_guardrail(trace_id, suspected, matched)
         cats, _local = scan_pii(req.content)
@@ -80,9 +97,10 @@ def run_pipeline(req: ExtractionRequest, client: LLMClient, settings: Settings) 
                 last_err = _classify_transport(e)
                 log_llm_call(trace_id, settings.llm_model, _ms(t0), attempt, error_type=last_err)
                 if attempt < settings.max_retries:
+                    _sleep_backoff(settings, attempt)   # I2 退避
                     continue
-                return build_fallback(trace_id, f"transport_error:{last_err}",
-                                      fallback_pii, attempts, _ms(t0))
+                return _finish(build_fallback(trace_id, f"transport_error:{last_err}",
+                                              fallback_pii, attempts, _ms(t0)), suspected)
 
             log_llm_call(trace_id, settings.llm_model, _ms(t0), attempt)
             data, sig = validate_content(resp.content, finish_reason=resp.finish_reason)
@@ -96,21 +114,28 @@ def run_pipeline(req: ExtractionRequest, client: LLMClient, settings: Settings) 
                     status=status, data=reviewed, attempts=attempts,
                     repairs=max(attempts - 1, 0), needs_human_review=False,
                     failure_reason=None, trace_id=trace_id, latency_ms=_ms(t0))
-                log_pipeline_result(trace_id, str(status), attempts, result.repairs, False,
-                                    _ms(t0), suspected, reviewed.detected_pii)
-                return result
+                return _finish(result, suspected)
 
             last_err = sig.error_type
             if engine.should_halt(sig):
-                return build_fallback(trace_id, f"convergence_halt:{last_err}",
-                                      fallback_pii, attempts, _ms(t0))
+                return _finish(build_fallback(trace_id, f"convergence_halt:{last_err}",
+                                              fallback_pii, attempts, _ms(t0)), suspected)
             if attempt == settings.max_retries:
                 break
             messages.append({"role": "assistant", "content": resp.content})
             messages.append(engine.next_message(resp.content, sig))
 
-        return build_fallback(trace_id, f"budget_exhausted:{last_err}",
-                              fallback_pii, attempts, _ms(t0))
+        return _finish(build_fallback(trace_id, f"budget_exhausted:{last_err}",
+                                      fallback_pii, attempts, _ms(t0)), suspected)
     except Exception as e:  # noqa: BLE001 —— 最后一道防线
-        return build_fallback(trace_id, f"unexpected:{type(e).__name__}",
-                              False, attempts, _ms(t0))
+        return _finish(build_fallback(trace_id, f"unexpected:{type(e).__name__}",
+                                      False, attempts, _ms(t0)), suspected)
+
+
+def _sleep_backoff(settings: Settings, attempt: int) -> None:
+    """传输类错误的指数退避 + 抖动（设计 §6.3 / I2）。"""
+    base = max(settings.backoff_base_ms, 0) / 1000.0
+    if base <= 0:
+        return
+    delay = base * (2 ** attempt)
+    time.sleep(delay * (0.5 + random.random() / 2))
