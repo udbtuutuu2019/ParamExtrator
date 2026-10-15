@@ -1,0 +1,14 @@
+# ParamExtrator 默认配置（对应设计 §9；决策记录见附录 C）
+llm_provider: deepseek
+llm_model: deepseek-chat
+llm_base_url: https://api.deepseek.com
+llm_temperature: 0.0
+llm_timeout_s: 30
+max_retries: 2
+retry_budget_policy: shared
+backoff_base_ms: 500
+injection_threshold: 1
+max_input_bytes: 32768
+fallback_urgency: MEDIUM
+log_level: INFO
+log_format: json
