@@ -56,3 +56,9 @@ def test_apply_pii_policy_combines_channels():
     assert apply_pii_policy(llm_flag=False, cats={"nric"}) is True
     assert apply_pii_policy(llm_flag=False, cats={"card_tail"}) is False
     assert apply_pii_policy(llm_flag=False, cats=set()) is False
+
+
+def test_apply_pii_policy_card_tail_overrides_llm_flag():
+    # Review Focus #3 / 决策 D1：仅卡尾号时，即使 LLM 说 true 也应为 false
+    assert apply_pii_policy(llm_flag=True, cats={"card_tail"}) is False
+

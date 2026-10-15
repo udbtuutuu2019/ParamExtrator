@@ -34,5 +34,10 @@ def scan_pii(text) -> "tuple[set[str], bool]":
 
 
 def apply_pii_policy(llm_flag: bool, cats) -> bool:
-    """合并 LLM 标记与本地扫描（高召回），卡尾号不独立判定。"""
-    return bool(llm_flag or (set(cats) & HIGH_CONFIDENCE))
+    """合并 LLM 标记与本地扫描（高召回）；卡尾号是明确排除项（决策 D1）。"""
+    cats = set(cats)
+    if cats & HIGH_CONFIDENCE:
+        return True
+    if "card_tail" in cats:
+        return False  # 仅卡尾号 → 覆写为 false
+    return bool(llm_flag)
