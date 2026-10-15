@@ -32,7 +32,14 @@ class InstructorClient:
     @staticmethod
     def _from_raw(raw) -> LLMResponse:
         choice = raw.choices[0]
+        msg = choice.message
+        content = msg.content
+        # function-calling 模式下 content 为空，结构化数据在 tool_calls.arguments
+        if not content:
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            if tool_calls:
+                content = tool_calls[0].function.arguments
         return LLMResponse(
-            content=choice.message.content or "",
+            content=content or "",
             finish_reason=getattr(choice, "finish_reason", None),
         )

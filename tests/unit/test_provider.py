@@ -65,3 +65,47 @@ def test_instructor_client_satisfies_protocol():
 
 def test_llm_response_defaults():
     assert LLMResponse(content="x").finish_reason is None
+
+
+class _FakeFunction:
+    arguments = '{"from": "tool_call"}'
+
+
+class _FakeToolCall:
+    function = _FakeFunction()
+
+
+class _FakeMsgTool:
+    content = None
+    tool_calls = [_FakeToolCall()]
+
+
+class _FakeChoiceTool:
+    message = _FakeMsgTool()
+    finish_reason = "tool_calls"
+
+
+class _FakeRawTool:
+    choices = [_FakeChoiceTool()]
+
+
+class _FakeCompletionsTool:
+    def create_with_completion(self, **kwargs):
+        return _FakeParsed(), _FakeRawTool()
+
+
+class _FakeChatTool:
+    completions = _FakeCompletionsTool()
+
+
+class _FakeInstructorTool:
+    chat = _FakeChatTool()
+
+
+def test_extract_reads_tool_call_arguments_when_content_empty():
+    # function-calling 模式下 content 为空，结构化数据在 tool_calls.arguments
+    resp = InstructorClient(_FakeInstructorTool(), model="m").extract(
+        [{"role": "user", "content": "x"}])
+    assert resp.content == '{"from": "tool_call"}'
+    assert resp.finish_reason == "tool_calls"
+
