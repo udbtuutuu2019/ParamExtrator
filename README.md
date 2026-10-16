@@ -6,10 +6,11 @@
 ## 快速开始
 
 ```bash
-pip install -e ".[dev]"          # 安装（含测试依赖）
-cp .env.example .env             # 填入 DEEPSEEK_API_KEY
-pytest                           # 运行全部测试（全 mock，无需 API Key）
-python examples/run_demo.py      # 跑通用例 1~4（需要真实 API Key）
+pip install -e ".[dev]"              # 安装（含测试依赖）
+cp .env.example .env                 # 填入 DEEPSEEK_API_KEY
+pytest                               # 105 个测试（全 mock，无需 API Key）
+python examples/run_retry_demo.py    # 演示"修复重试"链路（纯 mock，无需 Key）
+python examples/run_demo.py          # 跑通用例 1~4（需要真实 API Key）
 ```
 
 启动服务：
@@ -20,6 +21,23 @@ curl -X POST http://localhost:8000/v1/extract \
   -H "Content-Type: application/json" \
   -d '{"transcript_id":"TX-001","content":"我昨天被重复扣了 150 美元..."}'
 ```
+
+### 看一次"修复重试"如何发生
+
+`examples/run_retry_demo.py` 用 mock 让模型**首轮输出非法枚举**（`urgency="UNAVAILABLE"`），
+直观展示 Harness 的错误捕获 → 针对性修复 → 第 2 轮收敛：
+
+```
+llm_call(attempt=0) → validation(is_valid=false, ENUM_MISMATCH)
+                    → llm_call(attempt=1) → validation(is_valid=true)
+                    → pipeline_result(status=REPAIRED, attempts=2, repairs=1)
+```
+
+即"1 次初始 + 1 次修复"，在 `MAX_RETRIES=2` 预算内。对应测试用例：
+`tests/integration/test_pipeline.py::test_s2_repair_recovery_logs_first_error`。
+
+> 为什么是**自研重试**而非 instructor 内置重试？见下方"权衡取舍"表与
+> `docs/TECHNICAL_DESIGN.md` §3.5。
 
 ---
 
@@ -53,7 +71,7 @@ curl -X POST http://localhost:8000/v1/extract \
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
 | 结构化输出 | `instructor + Pydantic` | 成熟、胶水少；聚焦 Harness 而非重复造轮子 |
-| 重试归属 | instructor `max_retries=0`，全部交自研层 `N=2` | 避免两层重试叠加超预算（决策 D2） |
+| 重试归属 | instructor `max_retries=0`，全部交自研层 `N=2` | ①避免"库重试+自研重试"两层叠加超预算；②instructor 回喂是通用文案，自研可做**按错误类型的针对性修复**（决策 D2） |
 | 采样温度 | 统一 `temp=0` | 更强确定性；针对性提示已足够驱动收敛（决策 D9，POC 验证） |
 | 幻觉字段 | `extra="forbid"` | 拒绝而非静默丢弃（决策 G2） |
 | 注入防御 | 多层但不追求 100% 拦截 | 改为"安全失败 + 人工复核"的务实策略 |
