@@ -50,3 +50,22 @@ def test_s3_budget_exhausted_fallback_no_exception():
     r = run_pipeline(_req("TX-004"), client, SETTINGS)
     assert r.status == Status.FALLBACK
     assert r.needs_human_review is True
+
+
+def test_s3b_budget_exhausted_after_max_retries():
+    """超过最大重试预算的优雅兜底。
+
+    每轮返回**不同**错误（避免单调性提前熔断），从而真正耗尽预算：
+    3 次调用（1 初始 + 2 修复）→ budget_exhausted → FALLBACK。
+    """
+    bad_enum = _json(urgency="URGENT")                      # ENUM_MISMATCH
+    bad_len = _json(summary="x" * 201)                      # LENGTH_VIOLATION
+    bad_missing = json.dumps({"customer_id": None, "issue_category": "BILLING",
+                              "urgency": "MEDIUM", "summary": "ok",
+                              "actionable_steps": []})      # MISSING_FIELD
+    client = MockLLMClient([LLMResponse(bad_enum), LLMResponse(bad_len), LLMResponse(bad_missing)])
+    r = run_pipeline(_req("TX-004"), client, SETTINGS)
+    assert r.status == Status.FALLBACK
+    assert r.attempts == SETTINGS.max_retries + 1           # 用满预算（3 次）
+    assert (r.failure_reason or "").startswith("budget_exhausted")
+    assert r.needs_human_review is True
