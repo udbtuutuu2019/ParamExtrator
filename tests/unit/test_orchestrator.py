@@ -101,6 +101,22 @@ def test_fallback_emits_pipeline_result_log(caplog):
     assert any('"event": "pipeline_result"' in m and "FALLBACK" in m for m in msgs)
 
 
+def test_fallback_log_carries_failure_reason(caplog):
+    """FALLBACK 的 pipeline_result 日志必须带失败原因。
+
+    线上据此按原因维度拆分告警（模型不收敛 vs 传输抖动，处置方式不同）。
+    """
+    with caplog.at_level(logging.INFO, logger="param_extractor"):
+        client = MockLLMClient([LLMResponse("not json")])
+        run_pipeline(_req(), client, SETTINGS)
+    (line,) = [r.getMessage() for r in caplog.records
+               if '"event": "pipeline_result"' in r.getMessage()]
+    rec = json.loads(line)
+    assert rec["status"] == "FALLBACK"
+    assert rec["failure_reason"]
+    assert rec["failure_reason"].startswith(("convergence_halt", "budget_exhausted"))
+
+
 def test_empty_input_emits_pipeline_result_log(caplog):
     with caplog.at_level(logging.INFO, logger="param_extractor"):
         client = MockLLMClient([LLMResponse(_json())])

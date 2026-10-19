@@ -50,10 +50,12 @@ def log_validation(trace_id: str, attempt_index: int, is_valid: bool = False,
 
 def log_pipeline_result(trace_id: str, status: str, attempts: int, repairs: int,
                         needs_human_review: bool, latency_ms: int = 0,
-                        injection_suspected: bool = False, detected_pii: bool = False) -> dict:
+                        injection_suspected: bool = False, detected_pii: bool = False,
+                        failure_reason: Optional[str] = None) -> dict:
     return log_event("pipeline_result", trace_id=trace_id, status=status, attempts=attempts,
                      repairs=repairs, needs_human_review=needs_human_review, latency_ms=latency_ms,
-                     injection_suspected=injection_suspected, detected_pii=detected_pii)
+                     injection_suspected=injection_suspected, detected_pii=detected_pii,
+                     failure_reason=failure_reason)
 
 
 def log_guardrail(trace_id: str, injection_suspected: bool, matched_rules) -> dict:

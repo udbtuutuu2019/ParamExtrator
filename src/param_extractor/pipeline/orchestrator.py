@@ -56,7 +56,8 @@ def _finish(result: ExtractionResult, injection_suspected: bool) -> ExtractionRe
     """统一出货：记录 pipeline_result 后返回（杜绝漏日志）。"""
     log_pipeline_result(result.trace_id, str(result.status), result.attempts, result.repairs,
                         result.needs_human_review, result.latency_ms,
-                        injection_suspected, result.data.detected_pii)
+                        injection_suspected, result.data.detected_pii,
+                        failure_reason=result.failure_reason)
     return result
 
 

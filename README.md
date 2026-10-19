@@ -5,7 +5,7 @@
 
 | | |
 |---|---|
-| 状态 | ✅ 106 测试全绿（全 mock，无需 API Key）｜真实 API 端到端 4/4 通过 |
+| 状态 | ✅ 107 测试全绿（全 mock，无需 API Key）｜真实 API 端到端 4/4 通过 |
 | 语言 | Python 3.11+ ｜ Pydantic v2 ｜ instructor |
 | 默认模型 | `deepseek-chat`（POC 选定） |
 
@@ -16,7 +16,7 @@
 ```bash
 pip install -e ".[dev]"              # 安装（含测试依赖）
 cp .env.example .env                 # 填入 DEEPSEEK_API_KEY
-pytest                               # 106 个测试（全 mock，无需 API Key）
+pytest                               # 107 个测试（全 mock，无需 API Key）
 python examples/run_retry_demo.py    # 演示"修复重试"链路（纯 mock，无需 Key）
 python examples/run_demo.py          # 跑通用例 1~4（需要真实 API Key）
 ```
@@ -193,7 +193,7 @@ Customer ID: CUST-98234
 三层，**全部 mock，无需 API Key**：
 
 ```bash
-python -m pytest -q                    # 全量 → 106 passed
+python -m pytest -q                    # 全量 → 107 passed
 python -m pytest tests/unit -q          # 92：契约/校验/护栏/修复/兜底/日志/编排
 python -m pytest tests/integration -q   # 8：S1/S2/S3(+S3b 预算耗尽) + API 契约
 python -m pytest tests/adversarial -q   # 6：S4 注入 / S5·S5b PII
